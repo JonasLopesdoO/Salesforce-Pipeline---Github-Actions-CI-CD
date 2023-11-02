@@ -1,0 +1,79 @@
+# Unique name for this workflow
+name: Deploy to uat and main branch
+
+# Definition when the workflow should run
+on:
+    push:
+      branches: [ uat, main ]
+      paths:
+        - 'force-app/**'
+            
+# Jobs to be executed
+jobs:
+    deploy-branch-to-uat-or-prod-orgs:
+        runs-on: ubuntu-latest
+        
+        if: ${{ github.actor != 'dependabot[bot]' }}
+        steps:
+            # Now we install nodejs in the VM, and specify version 14
+            - uses: actions/setup-node@v3
+              with:
+                node-version: '14'
+
+            # Checkout the source code
+            - name: 'Checkout source code'
+              uses: actions/checkout@v3
+              with:
+                fetch-depth: 0
+
+            - name: 'Enable file permissions for shell files'
+              run: |
+                chmod +x scripts/pullRequest.sh
+                chmod +x scripts/additionalInstallations.sh
+                chmod +x scripts/deploy.sh
+                chmod +x scripts/getTestClassesName.sh
+                chmod +x scripts/pullRequest.sh
+                chmod +x scripts/pushDeploy.sh
+                chmod +x scripts/validateDeploy.sh
+
+            # Install Salesforce CLI
+            - name: 'Install Salesforce CLI'
+              run: |
+                  wget https://developer.salesforce.com/media/salesforce-cli/sfdx/channels/stable/sfdx-linux-x64.tar.xz
+                  mkdir ~/sfdx
+                  tar xJf sfdx-linux-x64.tar.xz -C ~/sfdx --strip-components 1
+                  echo "$HOME/sfdx/bin" >> $GITHUB_PATH
+                  ~/sfdx/bin/sfdx version
+
+            # We use SFDX Git Delta to create a directory with only the metadata that has changed.
+            # this allows us to deploy only those changes, as opposed to deploying the entire branch. 
+            # This helps reducing deployment times
+            - name: 'Installing sfdx git delta'
+              run: |
+                echo y | sfdx plugins:install sfdx-git-delta
+
+           # Install java as it is required for the next step
+            - name: 'Installing java'
+              run: |
+                sudo apt-get update
+                sudo apt install default-jdk
+
+            - name: 'Installing pmd'
+              run: |
+                unzip pmd/pmd-bin-6.42.0.zip -d pmd
+              
+            # You will have to create a connected app to get the Consumer Key and set this secret under secrets 
+            # variables from github 
+
+            - name: 'Run the scripts'
+              env:
+                PMD_MINIMUM_PRIORITY: ${{ secrets.PMD_MINIMUM_PRIORITY }}
+                GIT_EVENT_BEFORE: ${{ github.event.before }}
+                SFDC_UAT_CONSUMER_KEY: ${{ secrets.SFDC_UAT_CONSUMER_KEY }}
+                SFDC_UAT_USERNAME: ${{ secrets.SFDC_UAT_USERNAME }}
+                SFDC_UAT_INSTANCE_URL: ${{ secrets.SFDC_UAT_INSTANCE_URL }}
+                SFDC_PROD_CONSUMER_KEY: ${{ secrets.SFDC_PROD_CONSUMER_KEY }}
+                SFDC_PROD_USERNAME: ${{ secrets.SFDC_PROD_USERNAME }}
+                SFDC_PROD_INSTANCE_URL: ${{ secrets.SFDC_PROD_INSTANCE_URL }}
+              run: |
+                ./scripts/pushDeploy.sh
